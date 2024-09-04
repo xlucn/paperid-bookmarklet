@@ -1,36 +1,38 @@
-// CommonJS import
-import { readFile, readdirSync } from 'fs';
+"use strict";
+import { readFileSync, readdirSync } from 'fs';
 import { JSDOM } from 'jsdom';
 import { describe } from 'mocha';
 import { expect } from 'chai';
 import { Extractor } from '../src/articleid.js';
 
-const testGroups = [
-    {
-        pub: 'springer',
-        jour: [
-            { name: 'CMDA', expected: 'Gaitanas2024CMDA136.1' },
-        ]
-    }
-]
+const testGroups = readdirSync('test', { withFileTypes: true })
+    .filter(dirent => dirent.isDirectory())
+    .map(dirent => dirent.name)
 
-// glob all subfolders
-testGroups.forEach(({ pub, jour }) => {
-    describe(`Test ${pub}`+ pub, function() {
-        jour.forEach(({ name, expected }) => {
-            it(`should work on ${pub}/${name}`, function() {
-                readFile(`test/${pub}/${name}.html`, 'utf8', (err, data) => {
-                    if (err) throw err;
+testGroups.forEach(group => {
+    describe(`Test ${group}`, function() {
+        const subGroups = readdirSync(`test/${group}`, { withFileTypes: true })
+            .filter(dirent => dirent.isDirectory())
+            .map(dirent => dirent.name)
+
+        subGroups.forEach(subGroup => {
+            const items = readdirSync(`test/${group}/${subGroup}`)
+                .filter(file => file.endsWith('.html'))
+
+            items.forEach(item => {
+                it(`should work on ${subGroup}/${item}`, function() {
+                    // the answer is in the filename
+                    const expected = item.slice(0, -5);
+                    const data = readFileSync(`test/${group}/${subGroup}/${item}`);
 
                     // Create a JSDOM instance
-                    const dom = new JSDOM(data);
-
+                    let dom = new JSDOM(data);
                     // Get the document
-                    const document = dom.window.document;
-
+                    let document = dom.window.document;
                     // Create an Extractor instance
                     let extractor = new Extractor(document);
-                    var result = extractor.extract_code();
+                    // Extract the article code
+                    let result = extractor.extract_code();
 
                     // Check the result
                     expect(result).to.equal(expected);
