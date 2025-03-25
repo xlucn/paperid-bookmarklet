@@ -1,65 +1,129 @@
 /**
  * Support:
- * Accent in names are converted to non-accented characters
- * Multi-word last names
- * Multiple journal publishers
+ * - Accent in names are converted to non-accented characters
+ * - Multi-word last names
+ * - Multiple journal publishers
  *
- * merge in javascript:
- * var a = {...b, ...c}
+ * TODO:
+ * - special characters in names
+ *   https://journals.aps.org/prd/abstract/10.1103/PhysRevD.110.064034
+ * - trailing CJK names
+ *   https://journals.aps.org/prd/abstract/10.1103/PhysRevD.110.083044
  */
 
 class Extractor {
     constructor(doc) {
-        this.doc = doc;
+        this.document = doc;
     }
 
-    extract_meta(name) {
-        return this.doc.querySelector('meta[name="' + name + '"]');
-    }
-
-    abbrev(journal, abbr) {
-        // FIXME: if abbr is not present
-        var words = abbr.split(/\s/);
-        if (words.length == 1 && words[0].length > 0) {
-            return abbr;
-        } else if (words.length == 2) {
-            return words[0].slice(0, 3) + words[1].slice(0, 3);
-        } else {
-            return abbr.replace(/[a-z.\s]/g, '');
-            // return journal.replace(/[a-z\s]/g, '');
-        };
-    }
-
-    extract(names, fallback=null) {
-        for (var i = 0; i < names.length; i++) {
-            var meta = this.extract_meta('citation_' + names[i]);
+    extract_meta(names, allow_null=false) {
+        for (var i in names) {
+            var meta = this.document.querySelector('meta[name="' + names[i] + '"]');
             if (meta) {
-                console.debug('Found meta tag for ' + names[i] + ': ' + meta.content);
                 return meta.content;
-            };
-        };
-        if (fallback != null) {
-            return fallback;
+            }
+        }
+        if (allow_null) {
+            return null;
         } else {
-            throw new Error('Can\'t extract article code, no meta tag found' +
-                ' for: citation_' + names.join(' or citation_'));
+            throw new Error('No meta tag found for: ' + names.join(' or '));
         }
     }
 
-    extract_code() {
+    extract_text(selector, allow_null=false) {
+        var elem = this.document.querySelector(selector);
+        if (elem) {
+            return elem.textContent;
+        } else if (allow_null) {
+            return null;
+        } else {
+            throw new Error('No element found for: ' + selector);
+        }
+    }
+
+    abbrv(abbrv_orig) {
+        var words = abbrv_orig.split(',')[0].split(/\s/);
+        if (words.length == 1 && words[0].length > 0) {
+            return abbrv_orig;
+        } else if (words.length == 2) {
+            return words[0].slice(0, 3) + words[1].slice(0, 3);
+        } else {
+            return abbrv_orig.replace(/[a-z.\s]/g, '');
+        }
+    }
+
+    extract_author() {
+        var author_meta = ['citation_author', 'dc.Creator', 'dc.creator'];
+        var authorRaw = this.extract_meta(author_meta).split(',')[0];
+
+        if (authorRaw.match(/.*Collaboration/)) {
+            return authorRaw.split(/\s/)[0] + 'Col';
+        }
+
         // some author are in the format of 'Last, First',
         // some are in the format of 'First Last'
-        var authorRaw = this.extract(['author']).split(',')[0].split(/\s/).reverse()[0];
+        var authorLast = authorRaw.split(/\s/).reverse()[0];
         // remove accents
-        var author = authorRaw.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        // different meta names for different publishers
-        var year = this.extract(['date', 'publication_date', 'online_date']).split('/')[0];
-        // var abbrv = extract(['journal_abbrev']).split(' ').map(first).join('');
-        var abbrv = this.abbrev(this.extract(['journal_title']), this.extract(['journal_abbrev'], ''));
-        var vol = this.extract(['volume']);
-        var page = this.extract(['firstpage']);
+        var author = authorLast.normalize('NFKD')
+                               .replace(/[\u0300-\u036f]/g, '')
+                               .replace(/ß/g, 'ss');
+        return author;
+    }
 
-        var result = author + year + abbrv + vol + '.' + page;
+    extract_year() {
+        // different meta names for different publishers
+        var year = this.extract_text('span[property="datePublished"]', true);
+        if (year) {
+            return year.split(/\s/).reverse()[0];
+        }
+
+        var year_meta = ['citation_date', 'citation_publication_date',
+                         'citation_online_date', 'dc.Date']
+        var year = this.extract_meta(year_meta).split(/[-/]/)[0];
+        return year;
+    }
+
+    extract_journal() {
+        var journal = this.extract_meta(['citation_journal_title']);
+        var abbrv_orig = this.extract_meta(['citation_journal_abbrev'], true);
+        if (!abbrv_orig) {
+            abbrv_orig = journal;
+        }
+        var abbrv = this.abbrv(abbrv_orig);
+        return abbrv;
+    }
+
+    extract_vol() {
+        var vol = this.extract_text('span[property="volumeNumber"]', true);
+        if (vol) {
+            return vol;
+        }
+
+        var vol = this.extract_meta(['citation_volume']);
+        return vol;
+    }
+
+    extract_page() {
+        var article_number = this.extract_text(['span[data-test="article-number"]'], true);
+        if (article_number) {
+            return article_number;
+        }
+
+        var page = this.extract_text('span[property="pageStart"]', true);
+        if (page) {
+            return page;
+        }
+
+        var page = this.extract_meta(['citation_firstpage']);
+        return page;
+    }
+
+    extract() {
+        var result = this.extract_author() +
+                     this.extract_year() +
+                     this.extract_journal() +
+                     this.extract_vol() + '.' +
+                     this.extract_page();
         return result;
     }
 }
@@ -79,18 +143,15 @@ function Toast(msg, duration = 5000) {
 
 function main(){
     try {
-        let extractor = new Extractor(document);
-        var result = extractor.extract_code();
+        let result = new Extractor(document).extract();
+        navigator.clipboard.writeText(result).then(function() {
+            Toast('Copied: ' + result);
+        }, function(err) {
+            console.error('Failed to copy text: ', err);
+        })
     } catch (e) {
-        /* meta not found */
-        alert(e);
+        alert(e);  /* probably meta not found */
     }
-
-    navigator.clipboard.writeText(result).then(function() {
-        Toast('Copied: ' + result);
-    }, function(err) {
-        console.error('Failed to copy text: ', err);
-    });
 }
 
-export { Extractor, main };
+// export { Extractor, main };
