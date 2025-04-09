@@ -5,13 +5,14 @@
 	},
 	"devDependencies": {
 		"chai": "^5.1.1",
-		"mocha": "^10.7.3"
+		"mocha": "^10.7.3",
+		"uglify-js": "^3.19.3"
 	},
 	"overrides": {
 		"tough-cookie": "^5.0.0-rc.4"
 	},
 	"scripts": {
 		"test": "mocha",
-		"build": "uglifyjs src/articleid.js -c -m -e -o bookmarklet.js"
+		"build": "node scripts/build.js"
 	}
 }
