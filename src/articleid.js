@@ -53,6 +53,11 @@ class Extractor {
     }
 
     extract_author() {
+        var author_text = this.extract_text('span[class="text surname"]', true);
+        if (author_text) {
+            return author_text;
+        }
+
         var author_meta = ['citation_author', 'dc.Creator', 'dc.creator'];
         var authorRaw = this.extract_meta(author_meta).split(',')[0];
 
