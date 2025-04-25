@@ -16,29 +16,22 @@ class Extractor {
         this.document = doc;
     }
 
-    extract_meta(names, allow_null=false) {
+    extract_meta(names) {
         for (var i in names) {
             var meta = this.document.querySelector('meta[name="' + names[i] + '"]');
             if (meta) {
                 return meta.content;
             }
         }
-        if (allow_null) {
-            return null;
-        } else {
-            throw new Error('No meta tag found for: ' + names.join(' or '));
-        }
+        return null;
     }
 
-    extract_text(selector, allow_null=false) {
+    extract_text(selector) {
         var elem = this.document.querySelector(selector);
         if (elem) {
             return elem.textContent;
-        } else if (allow_null) {
-            return null;
-        } else {
-            throw new Error('No element found for: ' + selector);
         }
+        return null;
     }
 
     abbrv(abbrv_orig) {
@@ -52,22 +45,36 @@ class Extractor {
         }
     }
 
-    extract_author() {
-        var author_text = this.extract_text('span[class="text surname"]', true);
+    raw_author() {
+        var author_text = this.extract_text('span[class="text surname"]');
         if (author_text) {
             return author_text;
         }
 
         var author_meta = ['citation_author', 'dc.Creator', 'dc.creator'];
-        var authorRaw = this.extract_meta(author_meta).split(',')[0];
+        var author_raw = this.extract_meta(author_meta)
+        if (author_raw) {
+            return author_raw;
+        }
 
-        if (authorRaw.match(/.*Collaboration/)) {
-            return authorRaw.split(/\s/)[0] + 'Col';
+        return null;
+    }
+
+    author() {
+        var author_raw = this.raw_author();
+        if (!author_raw) {
+            throw new Error('Author not found');
+        }
+
+        author_raw = author_raw.split(',')[0];
+
+        if (author_raw.match(/.*Collaboration/)) {
+            author_raw = author_raw.split(/\s/)[0] + 'Col';
         }
 
         // some author are in the format of 'Last, First',
         // some are in the format of 'First Last'
-        var authorLast = authorRaw.split(/\s/).reverse()[0];
+        var authorLast = author_raw.split(/\s/).reverse()[0];
         // remove accents
         var author = authorLast.normalize('NFKD')
                                .replace(/[\u0300-\u036f]/g, '')
@@ -75,60 +82,73 @@ class Extractor {
         return author;
     }
 
-    extract_year() {
+    year() {
         // different meta names for different publishers
-        var year = this.extract_text('span[property="datePublished"]', true);
+        var year = this.extract_text('span[property="datePublished"]');
         if (year) {
             return year.split(/\s/).reverse()[0];
         }
 
         var year_meta = ['citation_date', 'citation_publication_date',
                          'citation_online_date', 'dc.Date']
-        var year = this.extract_meta(year_meta).split(/[-/]/)[0];
-        return year;
-    }
-
-    extract_journal() {
-        var journal = this.extract_meta(['citation_journal_title']);
-        var abbrv_orig = this.extract_meta(['citation_journal_abbrev'], true);
-        if (!abbrv_orig) {
-            abbrv_orig = journal;
+        var year = this.extract_meta(year_meta)
+        if (year) {
+            return year.split(/[-/]/)[0];
         }
-        var abbrv = this.abbrv(abbrv_orig);
-        return abbrv;
+
+        throw new Error('Year not found');
     }
 
-    extract_vol() {
-        var vol = this.extract_text('span[property="volumeNumber"]', true);
+    journal() {
+        var abbrv_orig = this.extract_meta(['citation_journal_abbrev']);
+        if (abbrv_orig) {
+            return this.abbrv(abbrv_orig);
+        }
+
+        var journal = this.extract_meta(['citation_journal_title']);
+        if (journal) {
+            return this.abbrv(journal);
+        }
+
+        throw new Error('Journal not found');
+    }
+
+    volume() {
+        var vol = this.extract_text('span[property="volumeNumber"]');
         if (vol) {
             return vol;
         }
 
         var vol = this.extract_meta(['citation_volume']);
-        return vol;
-    }
-
-    extract_page() {
-        var article_number = this.extract_text(['span[data-test="article-number"]'], true);
-        if (article_number) {
-            return article_number;
+        if (vol) {
+            return vol;
         }
 
-        var page = this.extract_text('span[property="pageStart"]', true);
+        throw new Error('Volume not found');
+    }
+
+    page() {
+        var page = this.extract_meta(['citation_firstpage']);
         if (page) {
             return page;
         }
 
-        var page = this.extract_meta(['citation_firstpage']);
-        return page;
+        var page = this.extract_text('span[property="pageStart"]');
+        if (page) {
+            return page;
+        }
+
+        var article_number = this.extract_text(['span[data-test="article-number"]']);
+        if (article_number) {
+            return article_number;
+        }
+
+        throw new Error('Page not found');
     }
 
     extract() {
-        var result = this.extract_author() +
-                     this.extract_year() +
-                     this.extract_journal() +
-                     this.extract_vol() + '.' +
-                     this.extract_page();
+        var result = this.author() + this.year() + this.journal() +
+                     this.volume() + '.' + this.page();
         return result;
     }
 }
